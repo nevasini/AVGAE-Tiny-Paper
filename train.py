@@ -63,7 +63,7 @@ weight_tensor = torch.ones(weight_mask.size(0))
 weight_tensor[weight_mask] = pos_weight
 
 # init model and optimizer
-model = getattr(model, args.model)(adj_norm.to_dense())
+model = getattr(model, args.model)(adj_norm)
 optimizer = Adam(model.parameters(), lr=args.learning_rate)
 
 
@@ -107,7 +107,7 @@ def get_acc(adj_rec, adj_label):
 for epoch in range(args.num_epoch):
     t = time.time()
     # print(type(features))
-    A_pred = model(features.to_dense())
+    A_pred = model(features)
     optimizer.zero_grad()
     loss = log_lik = norm * \
         F.binary_cross_entropy(

@@ -3,46 +3,22 @@ import torch.nn as nn
 import torch.nn.functional as F
 import os
 import numpy as np
-from layers import GraphAttentionLayer, SpGraphAttentionLayer
 import args
-from torch_geometric.nn import GATConv
-
-
-# class MyGAT(GATConv):
-# 	def __init__(self,
-#         in_channels: Union[int, Tuple[int, int]],
-#         out_channels: int,
-#         heads: int = 1,
-#         concat: bool = True,
-#         negative_slope: float = 0.2,
-#         dropout: float = 0.0,
-#         add_self_loops: bool = True,
-#         edge_dim: Optional[int] = None,
-#         fill_value: Union[float, Tensor, str] = 'mean',
-#         bias: bool = True,
-#         adj=None, **kwargs,):
-# 		super(MyGAT,self).__init__()
-# 		self.adj = adj
-	
-# 	def forward(self, x: Union[Tensor, OptPairTensor], edge_index: Adj, edge_attr: OptTensor = None, size: Size = None, return_attention_weights: NoneType = None) -> Tensor:
-# 		return super().forward(x, edge_index, edge_attr, size, return_attention_weights)
-
-
 
 
 class AVGAE(nn.Module):
     def __init__(self, adj):
         super(AVGAE, self).__init__()
-        self.base_gcn = GAT(
-            args.input_dim, args.hidden1_dim, args.hidden1_dim, adj)
-        self.gcn_mean = GAT(
-            args.hidden1_dim, args.hidden2_dim, args.hidden2_dim, adj)
-        self.gcn_logstddev = GAT(
-            args.hidden1_dim, args.hidden2_dim, args.hidden2_dim, adj)
+        self.base_gcn = GraphAttnLayer(
+            args.input_dim, args.hidden1_dim, adj)
+        self.gcn_mean = GraphAttnLayer(
+            args.hidden1_dim, args.hidden2_dim, adj)
+        self.gcn_logstddev = GraphAttnLayer(
+            args.hidden1_dim, args.hidden2_dim, adj)
         self.adj = adj
 
     def encode(self, X):
-        hidden = self.base_gcn(X, self.adj)
+        hidden = self.base_gcn(X)
         self.mean = self.gcn_mean(hidden)
         self.logstd = self.gcn_logstddev(hidden)
         gaussian_noise = torch.randn(X.size(0), args.hidden2_dim)
@@ -76,6 +52,41 @@ class VGAE(nn.Module):
         Z = self.encode(X)
         A_pred = dot_product_decode(Z)
         return A_pred
+
+
+class GraphAttnLayer(nn.Module):
+    def __init__(self, input_dim, output_dim, adj, num_heads=1, dropout=0.4, alpha=0.2, activation=F.relu, **kwargs):
+        super(GraphAttnLayer, self).__init__(**kwargs)
+        self.output_dim = output_dim//num_heads
+        self.weights = [glorot_init(input_dim, self.output_dim)
+                        for _ in range(num_heads)]
+        self.adj = adj
+        self.dropout = dropout
+        self.input_dim = input_dim
+        self.alpha = alpha
+        self.a = nn.Parameter(torch.zeros(size=(2*(self.output_dim), 1)))
+
+        self.leakyrelu = nn.LeakyReLU(self.alpha)
+
+    def forward(self, X):
+        # import pdb
+        # pdb.set_trace()
+        h_s = [torch.mm(X, self.weights[i]) for i in range(len(self.weights))]
+        N = h_s[0].size(0)
+
+        a_s = [torch.cat([h.repeat(1, N).view(N * N, -1), h.repeat(N, 1)],
+                         dim=1).view(N, -1, 2 * self.output_dim) for h in h_s]
+        e_s = [self.leakyrelu(torch.matmul(a, self.a).squeeze(2)) for a in a_s]
+
+        mask = -9e15 * torch.ones_like(e_s[0])
+        attn = [torch.where(self.adj.to_dense() > 0, e, mask) for e in e_s]
+        attn = [F.softmax(att, dim=1) for att in attn]
+        attn = [F.dropout(att, self.dropout, training=self.training)
+                for att in attn]
+        h_s_prime = torch.cat([torch.matmul(att, h)
+                              for (att, h) in zip(attn, h_s)], dim=1)
+
+        return h_s_prime
 
 
 class GraphConvSparse(nn.Module):
@@ -134,6 +145,12 @@ class GAE(nn.Module):
 # 		out = F.relu(out)
 # 		out = A*X*self.w0
 # 		return out
+
+
+class MyGAT(nn.Module):
+    def __init__(self):
+        super(MyGAT, self).__init__()
+
 
 class GAT(nn.Module):
     def __init__(self, nfeat, nhid, nclass, adj, dropout=0, alpha=0.1, nheads=2):
