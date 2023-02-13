@@ -1,6 +1,7 @@
 import torch
 import torch.nn.functional as F
-from torch.optim import Adam
+from torch.optim import Adam, SGD
+from torch.optim.lr_scheduler import CyclicLR
 from sklearn.metrics import roc_auc_score, average_precision_score
 import scipy.sparse as sp
 import numpy as np
@@ -11,6 +12,7 @@ from input_data import load_data
 from preprocessing import *
 import args
 import model
+import matplotlib.pyplot as plt
 
 # Train on CPU (hide GPU) due to memory constraints
 os.environ['CUDA_VISIBLE_DEVICES'] = ""
@@ -24,7 +26,7 @@ adj_orig = adj_orig - \
                   0]), shape=adj_orig.shape)
 adj_orig.eliminate_zeros()
 
-adj_train, train_edges, val_edges, val_edges_false, test_edges, test_edges_false = mask_test_edges(
+adj_train, train_edges, val_edges, val_edges_false, test_edges, test_edges_false, train_edges_false = mask_test_edges(
     adj)
 adj = adj_train
 
@@ -64,7 +66,8 @@ weight_tensor[weight_mask] = pos_weight
 
 # init model and optimizer
 model = getattr(model, args.model)(adj_norm)
-optimizer = Adam(model.parameters(), lr=args.learning_rate)
+optimizer = SGD(model.parameters(), lr=args.learning_rate)
+scheduler = CyclicLR(optimizer, base_lr=args.learning_rate, max_lr=0.1)
 
 
 def get_scores(edges_pos, edges_neg, adj_rec):
@@ -104,6 +107,8 @@ def get_acc(adj_rec, adj_label):
 
 
 # train model
+l = []
+v = []
 for epoch in range(args.num_epoch):
     t = time.time()
     # print(type(features))
@@ -119,15 +124,31 @@ for epoch in range(args.num_epoch):
 
     loss.backward()
     optimizer.step()
+    scheduler.step()
 
     train_acc = get_acc(A_pred, adj_label)
+    train_roc, train_ap = get_scores(train_edges, train_edges_false, A_pred)
+    l.append(train_ap)
 
     val_roc, val_ap = get_scores(val_edges, val_edges_false, A_pred)
+    v.append(val_ap)
+
     print("Epoch:", '%04d' % (epoch + 1), "train_loss=", "{:.5f}".format(loss.item()),
           "train_acc=", "{:.5f}".format(
               train_acc), "val_roc=", "{:.5f}".format(val_roc),
           "val_ap=", "{:.5f}".format(val_ap),
           "time=", "{:.5f}".format(time.time() - t))
+
+plt.figure(figsize=(10, 5))
+plt.plot(l)
+plt.plot(v)
+# plt.plot(epoch)
+plt.title('accuracy')
+plt.xlabel('epoch')
+plt.ylabel('accuracy')
+plt.legend(['train', "vali"], loc='upper right')
+plt.savefig('try.png')
+plt.show()
 
 
 test_roc, test_ap = get_scores(test_edges, test_edges_false, A_pred)

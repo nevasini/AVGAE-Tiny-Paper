@@ -11,17 +11,23 @@ class AVGAE(nn.Module):
         super(AVGAE, self).__init__()
         self.base_gcn = GraphAttnLayer(
             args.input_dim, args.hidden1_dim, adj)
+        self.base_gcn1 = GraphAttnLayer(
+            args.hidden1_dim, args.hidden2_dim, adj
+        )
         self.gcn_mean = GraphAttnLayer(
-            args.hidden1_dim, args.hidden2_dim, adj)
+            args.hidden2_dim, args.hidden3_dim, adj)
         self.gcn_logstddev = GraphAttnLayer(
-            args.hidden1_dim, args.hidden2_dim, adj)
+            args.hidden2_dim, args.hidden3_dim, adj)
         self.adj = adj
 
     def encode(self, X):
+        # import pdb
+        # pdb.set_trace()
         hidden = self.base_gcn(X)
+        hidden = self.base_gcn1(hidden)
         self.mean = self.gcn_mean(hidden)
         self.logstd = self.gcn_logstddev(hidden)
-        gaussian_noise = torch.randn(X.size(0), args.hidden2_dim)
+        gaussian_noise = torch.randn(X.size(0), args.hidden3_dim)
         sampled_z = gaussian_noise*torch.exp(self.logstd) + self.mean
         return sampled_z
 
@@ -55,7 +61,7 @@ class VGAE(nn.Module):
 
 
 class GraphAttnLayer(nn.Module):
-    def __init__(self, input_dim, output_dim, adj, num_heads=1, dropout=0.4, alpha=0.2, activation=F.relu, **kwargs):
+    def __init__(self, input_dim, output_dim, adj, num_heads=8, dropout=0.4, alpha=0.2, activation=F.relu, **kwargs):
         super(GraphAttnLayer, self).__init__(**kwargs)
         self.output_dim = output_dim//num_heads
         self.weights = [glorot_init(input_dim, self.output_dim)
