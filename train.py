@@ -66,8 +66,9 @@ weight_tensor[weight_mask] = pos_weight
 
 # init model and optimizer
 model = getattr(model, args.model)(adj_norm)
-optimizer = SGD(model.parameters(), lr=args.learning_rate)
-scheduler = CyclicLR(optimizer, base_lr=args.learning_rate, max_lr=0.1)
+optimizer = SGD(model.parameters(), lr=args.learning_rate,
+                momentum=0.9, weight_decay=1e-5)
+scheduler = CyclicLR(optimizer, base_lr=args.learning_rate, max_lr=1)
 
 
 def get_scores(edges_pos, edges_neg, adj_rec):
@@ -117,7 +118,13 @@ for epoch in range(args.num_epoch):
     loss = log_lik = norm * \
         F.binary_cross_entropy(
             A_pred.view(-1), adj_label.to_dense().view(-1), weight=weight_tensor)
+
     if args.model == 'VGAE':
+        kl_divergence = 0.5 / A_pred.size(0) * (
+            1 + 2*model.logstd - model.mean**2 - torch.exp(model.logstd)**2).sum(1).mean()
+        loss -= kl_divergence
+
+    if args.model == 'AVGAE':
         kl_divergence = 0.5 / A_pred.size(0) * (
             1 + 2*model.logstd - model.mean**2 - torch.exp(model.logstd)**2).sum(1).mean()
         loss -= kl_divergence
@@ -143,9 +150,9 @@ plt.figure(figsize=(10, 5))
 plt.plot(l)
 plt.plot(v)
 # plt.plot(epoch)
-plt.title('accuracy')
+plt.title('AP')
 plt.xlabel('epoch')
-plt.ylabel('accuracy')
+plt.ylabel('AP')
 plt.legend(['train', "vali"], loc='upper right')
 plt.savefig('try.png')
 plt.show()
