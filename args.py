@@ -1,9 +1,9 @@
 ### CONFIGS ###
-dataset = 'cora'
-model = 'AVGAE'
+dataset = 'citeseer'
+model = 'VGAE'
 
 
-input_dim = 1433  # 500#3703#1433
+input_dim = 3703  # 500#1433  # 500#3703#1433
 hidden1_dim = 32
 hidden2_dim = 16
 hidden3_dim = 8
